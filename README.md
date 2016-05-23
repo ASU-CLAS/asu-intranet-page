@@ -13,10 +13,8 @@ Once installed you can configure the module at `admin/config/content/asu_intrane
 
 ###Configuration Options
 
-****You may select a department, employee type, or both.****
-
 ####Departments
-Select one or more departments to restrict access to the intranet pages.
+Select one or more departments to restrict access to the intranet pages. This field is `required`.
 
 * Specifying a `department` without an `employee type` to grant access to users that belong to a department.
 * You can select all the `sub-departments` from a `department` when selecting by specifying that you want to include them.
@@ -34,7 +32,7 @@ Select one or more employee types to restrict access to the intranet pages.
 
 
 ## How It Works
-When a user logs in, the module will check and see if this user is a member of the `department(s)` and/or `employee type(s)` that were configured. When viewing an `asu_intranet_page` and they are not members, access will be denied.
+When a user logs in, the module will check and see if this user is a member of the `department(s)` and `employee type(s)` if they were configured. When viewing an `asu_intranet_page` and they are not members, access will be denied.
 
 
 ### Note
