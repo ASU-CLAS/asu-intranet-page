@@ -1,0 +1,144 @@
+<?php
+/**
+ * @file
+ * Code for the ASU Intranet Page feature.
+ */
+
+include_once 'asu_intranet_page.features.inc';
+
+
+/**
+ * Implements hook_entity_view()
+ */
+function asu_intranet_page_entity_view($entity, $type, $view_mode, $langcode) {
+  global $user;
+
+  $_checked_access = &drupal_static(__FUNCTION__, FALSE);
+
+  if ($_checked_access == FALSE) {
+
+    if ($type == 'node' && $entity->type == 'asu_intranet_page') {
+      // if the user is not logged in, ask them to
+      if (!$user->uid) {
+        drupal_goto('cas', array('query'=>drupal_get_destination()));
+      }
+      // check the user's role/access
+      else if (!in_array('asu intranet viewer', $user->roles) && !in_array('asu intranet local viewer', $user->roles)) {
+        drupal_access_denied();
+        drupal_exit();
+      }
+    }
+
+    $_checked_access = TRUE;
+  }
+}
+
+
+/**
+ * Implements hook_permission()
+ */
+function asu_intranet_page_permission() {
+  return array(
+    'administer asu intranet page' => array(
+      'title' => t('Administer ASU Intranet Pages'),
+      'description' => t('Configure ASU Intranet Page settings'),
+    ),
+  );
+}
+
+
+/**
+ * Implements hook_menu()
+ */
+function asu_intranet_page_menu() {
+
+  $items['admin/config/content/asu_intranet_page'] = array(
+    'title' => 'ASU Intranet Page Settings',
+    'description' => 'Configure ASU intranet page settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('asu_intranet_page_settings_form'),
+    'access arguments' => array('administer asu intranet page'),
+    'type' => MENU_NORMAL_ITEM,
+    'weight' => 10,
+  );
+
+  return $items;
+}
+
+
+function asu_intranet_page_settings_form() {
+  drupal_set_title('Configure ASU Intranet Pages');
+
+  $form = array();
+
+  $form['first_picker'] = array(
+    '#type' => 'asu_dept_picker',
+    '#asu_dept_tree' => array(
+      'items' => array(),
+    ),
+    // '#title' => 'Dept Picker',
+  );
+
+  $form['second_picker'] = array(
+    '#type' => 'asu_dept_picker',
+    // '#asu_dept_tree' => array(),
+  );
+
+  $form['test'] = array(
+    '#type' => 'textfield',
+    '#title' => 'some text field',
+  );
+
+  return $form;
+
+}
+
+
+/**
+ * Implements hook_user_login().
+ */
+function asu_intranet_page_user_login($account) {
+  asu_intranet_page_check_role_access($account);
+}
+
+
+/**
+ * Implements hook_cron().
+ */
+function asu_intranet_page_cron() {
+  // Cache data feeds from configuration
+  // fetch the different dept id URL's
+}
+
+
+function asu_intranet_page_process_access_map() {
+  // 
+}
+
+
+/**
+ * Perform a lookup
+ */
+function asu_intranet_page_check_role_access($account) {
+  static $_map = null;
+
+  $_map = array(
+    'snievas' => array(
+      'deptids' => array(
+        1409,
+        32557,
+      ),
+      'employee_types' => array(
+        'faculty',
+        'staff'
+      ),
+    ),
+  );
+
+  dpm($_map);
+
+  if (is_null($_map)) {
+    $_map = variable_get('asu_intranet_page_access', array());
+  }
+}
+
