@@ -7,29 +7,47 @@
 include_once 'asu_intranet_page.features.inc';
 
 
+define('ASU_INTRANET_PAGE_EMPLOYEE_TYPES_ENDPOINT', variable_get('asu_intranet_page_employee_types_endpoint', 'https://isearch.asu.edu/endpoints/employee-types'));
+define('ASU_INTRANET_PAGE_ISEARCH_DEPT_ENDPOINT', variable_get('asu_intranet_page_employee_types_endpoint', 'https://isearch.asu.edu/endpoints/dept-profiles/json/'));
+define('ASU_INTRANET_PAGE_CACHE_DURATION', 24); // set to 24 hours
+define('ASU_INTRANET_PAGE_ROLE', 'asu intranet viewer');
+define('ASU_INTRANET_PAGE_ROLE_OVERRIDE', 'asu intranet local viewer');
+
+
 /**
  * Implements hook_entity_view()
  */
 function asu_intranet_page_entity_view($entity, $type, $view_mode, $langcode) {
-  global $user;
-
   $_checked_access = &drupal_static(__FUNCTION__, FALSE);
 
   if ($_checked_access == FALSE) {
-
+    global $user;
+    
     if ($type == 'node' && $entity->type == 'asu_intranet_page') {
       // if the user is not logged in, ask them to
       if (!$user->uid) {
         drupal_goto('cas', array('query'=>drupal_get_destination()));
       }
       // check the user's role/access
-      else if (!in_array('asu intranet viewer', $user->roles) && !in_array('asu intranet local viewer', $user->roles)) {
+      elseif (!in_array(ASU_INTRANET_PAGE_ROLE, $user->roles) && !in_array(ASU_INTRANET_PAGE_ROLE_OVERRIDE, $user->roles)) {
         drupal_access_denied();
         drupal_exit();
       }
     }
 
     $_checked_access = TRUE;
+  }
+}
+
+
+/**
+ * Implements hook_init()
+ */
+function asu_intranet_page_init() {
+  global $user;
+
+  if ($user->uid) {
+    asu_intranet_page_check_role_access($user);
   }
 }
 
@@ -66,38 +84,10 @@ function asu_intranet_page_menu() {
 }
 
 
-function asu_intranet_page_settings_form() {
-  drupal_set_title('Configure ASU Intranet Pages');
-
-  $form = array();
-
-  $form['first_picker'] = array(
-    '#type' => 'asu_dept_picker',
-    '#asu_dept_tree' => array(
-      'items' => array(),
-    ),
-    // '#title' => 'Dept Picker',
-  );
-
-  $form['second_picker'] = array(
-    '#type' => 'asu_dept_picker',
-    // '#asu_dept_tree' => array(),
-  );
-
-  $form['test'] = array(
-    '#type' => 'textfield',
-    '#title' => 'some text field',
-  );
-
-  return $form;
-
-}
-
-
 /**
  * Implements hook_user_login().
  */
-function asu_intranet_page_user_login($account) {
+function asu_intranet_page_user_login(&$edit, $account) {
   asu_intranet_page_check_role_access($account);
 }
 
@@ -106,13 +96,63 @@ function asu_intranet_page_user_login($account) {
  * Implements hook_cron().
  */
 function asu_intranet_page_cron() {
-  // Cache data feeds from configuration
-  // fetch the different dept id URL's
+  // Process access data
+  asu_intranet_page_process_access_map();
 }
 
+/**
+ * Helper function to retrieve the dept nids that were configured
+ */
+function _asu_intranet_page_config_dept_nids() {
+  $fetch_depts = &drupal_static(__FUNCTION__, null);
+
+  if (!isset($fetch_depts) || is_null($fetch_depts)) {
+
+    $depts = variable_get('asu_intranet_page_depts', null);
+
+    // determine the dept feeds to be fetched
+    $fetch_depts = array();
+
+    if ($depts) {
+      $depts = json_decode($depts);
+
+      foreach ($depts->items as $item) {
+        $dept_id = $item->dept_id;
+
+        // include subdepts?
+        if (isset($depts->options->$dept_id->subdepts) && $depts->options->$dept_id->subdepts) {
+          $fetch_depts = array_merge($fetch_depts, $item->tree_nids);
+        }
+        else {
+          $fetch_depts[] = $item->dept_nid;
+        }
+      }
+    }
+  }
+
+  return $fetch_depts;
+}
 
 function asu_intranet_page_process_access_map() {
-  // 
+  $fetch_depts = _asu_intranet_page_config_dept_nids();
+
+  if (count($fetch_depts) > 0) {
+    // build the dept people access map
+    $dept_people = array();
+    foreach ($fetch_depts as $id) {
+      $people = _asu_intranet_page_get_isearch_feed($id);
+      
+      foreach ($people as $person) {
+        $asuriteid = $person['asuriteId'];
+
+        foreach ($person['deptids'] as $index => $deptid) {
+          $dept_people[$asuriteid][$deptid] = $person['employeeTypes'][$index];
+        }
+      }
+    }
+
+    variable_set('asu_intranet_page_access_map', $dept_people);
+  }
 }
 
 
@@ -120,25 +160,296 @@ function asu_intranet_page_process_access_map() {
  * Perform a lookup
  */
 function asu_intranet_page_check_role_access($account) {
-  static $_map = null;
+  $access_map = variable_get('asu_intranet_page_access_map', null);
+  $role = user_role_load_by_name(ASU_INTRANET_PAGE_ROLE);
 
-  $_map = array(
-    'snievas' => array(
-      'deptids' => array(
-        1409,
-        32557,
-      ),
-      'employee_types' => array(
-        'faculty',
-        'staff'
-      ),
-    ),
-  );
+  $has_intranet_role = in_array(ASU_INTRANET_PAGE_ROLE, $account->roles);
+  $grant_access = FALSE;
+  $revoke_access = $has_intranet_role;
 
-  dpm($_map);
+  if ($access_map && array_key_exists($account->name, $access_map)) {
 
-  if (is_null($_map)) {
-    $_map = variable_get('asu_intranet_page_access', array());
+    $user_dept_info = $access_map[$account->name];
+
+    $depts = _asu_intranet_page_config_dept_nids();
+    $employee_types = variable_get('asu_intranet_page_employee_types', array());
+
+    if (!empty($depts)) {
+      foreach ($depts as $dept_id) {
+        if (array_key_exists($dept_id, $user_dept_info)) {
+          // user has dept access
+          if (empty($employee_types)) {
+            $grant_access = TRUE;
+            $revoke_access = FALSE;
+          }
+
+          $employee_type = $user_dept_info[$dept_id];
+
+          if (array_key_exists($employee_type, $employee_types) && $employee_types[$employee_type]) {
+            $grant_access = TRUE;
+            $revoke_access = FALSE;
+          }
+        }
+      }
+    }
+    elseif (!empty($employee_types)) {
+      foreach ($employee_types as $employee_type_key => $value) {
+        if ($value && in_array($employee_type_key, $user_dept_info)) {
+          $grant_access = TRUE;
+          $revoke_access = FALSE;
+        }
+      }
+    }
+  }
+
+  if ($grant_access && !$has_intranet_role) {
+    $account->roles[$role->rid] = $role->name;
+    user_save($account);
+  }
+
+  if ($revoke_access && $has_intranet_role) {
+    unset($account->roles[$role->rid]);
+    user_save($account);
   }
 }
 
+
+/**
+ * Settings form
+ */
+function asu_intranet_page_settings_form() {
+  drupal_set_title('Configure ASU Intranet Pages');
+
+  $form = array();
+
+  $form['asu_intranet_page_depts'] = array(
+    '#type' => 'asu_dept_picker',
+    '#default_value' => variable_get('asu_intranet_page_depts', null),
+    '#title' => t('Departments'),
+    '#description' => t('Select department(s) to grant access.'),
+    '#required' => TRUE,
+  );
+
+  $form['employee_types'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Employee Types'),
+    '#description' => t('Select employee type(s) to grant access.'),
+  );
+
+  $form['employee_types'] = array_merge(
+    $form['employee_types'],
+    _asu_intranet_page_employee_type_fields()
+  );
+
+  $form = system_settings_form($form);
+  $form['#validate'] = array('_asu_intranet_page_settings_form_validate');
+  $form['#submit'][] = '_asu_intranet_page_settings_form_submit';
+
+  return $form;
+}
+
+
+/**
+ * Validation for settings form
+ */
+function _asu_intranet_page_settings_form_validate($form, &$form_state) {
+  // This is only necessary because we divided employee types 
+  // into three fieldsets and we are bypassing validation
+  $element = 'asu_intranet_page_employee_types';
+  $employee_type_groups = _asu_intranet_page_employee_type_groups();
+
+  $valid_options = array();
+  foreach ($employee_type_groups as $group) {
+    $keys = array_keys($form['employee_types'][$group][$element]['#options']);
+    $valid_options = array_merge($valid_options, $keys);
+  }
+
+  foreach ($form_state['values'][$element] as $key => $value) {
+    if (!in_array($key, $valid_options)) {
+      $elements = $form['employee_types'];
+      form_error($elements, t('An invalid department choice has been detected. Please contact the site administrator.'));
+      watchdog('form', 'Illegal choice %choice in %name element.', array('%choice' => $elements['#value'], '%name' => empty($elements['#title']) ? $elements['#parents'][0] : $elements['#title']), WATCHDOG_ERROR);
+    }
+  }
+}
+
+/**
+ * Submit handler for settings form
+ */
+function _asu_intranet_page_settings_form_submit($form, &$form_state) {
+  asu_intranet_page_process_access_map();
+}
+
+
+/**
+ * Helper function to return a mapping of employee type groups
+ */
+function _asu_intranet_page_employee_type_group_map() {
+  // Attempt to group employee types
+  return array(
+    // Faculty
+    'Faculty' => 'faculty',
+    'Faculty w/Admin Appointment' => 'faculty',
+    'Academic Professional' => 'faculty',
+    'Academic Prof w/Admin Appt' => 'faculty',
+    // Staff
+    'Administrative' => 'staff',
+    'University Staff' => 'staff',
+    'Classified' => 'staff',
+    // Other
+    'Post Doctoral Scholars' => 'other',
+    'Graduate Assistant/Associate' => 'other',
+    'Student Worker' => 'other',
+  );
+}
+
+
+/**
+ * Helper function to return a mapping of employee type groups
+ */
+function _asu_intranet_page_employee_type_groups() {
+  // Attempt to group employee types
+  return array('faculty', 'staff', 'other');
+}
+
+
+/**
+ * Helper function to return the setting employee types field
+ */
+function _asu_intranet_page_employee_type_fields() {
+
+  $elements = array();
+  $setting_name = 'asu_intranet_page_employee_types';
+  $default_employee_types = variable_get($setting_name, array());
+
+
+  // retrieve employee type groups
+  $employee_type_groups = _asu_intranet_page_employee_type_groups();
+
+  // dynamically create our field groups
+  foreach ($employee_type_groups as $group_key) {
+    $group_name = ucwords($group_key);
+    
+    $element[$group_key] = array(
+      '#title' => $group_name,
+      '#type' => 'fieldset',
+      '#collapsible' => FALSE,
+      '#attributes' => array(
+        'class' => array('employee-types-group', 'employee-types-group-'.$group_key),
+      ),
+    );
+    $element[$group_key][$setting_name] = array(
+      '#type' => 'checkboxes',
+      '#options' => array(),
+      '#default_value' => $default_employee_types,
+      // bypass validation since we are separating our checkboxes into
+      // different form fields by $group_key.. validation will occur there
+      // after checking the #needs_validation flag
+      '#validated' => TRUE,
+      '#needs_validation' => TRUE,
+    );
+  }
+
+
+  // retrieve all employee types
+  $employee_types = _asu_intranet_page_get_employee_types();
+
+  // retrieve employee type group map
+  $employee_type_group_map = _asu_intranet_page_employee_type_group_map();
+
+  // loop over our employee types and assign to field group
+  foreach ($employee_types['nodes'] as $employee_type_node) {
+    $employee_type = $employee_type_node['node']['name'];
+
+    // we will set the group to 'other' by default unless it is identified
+    $group = 'other';
+    if (isset($employee_type_group_map[$employee_type])) {
+      $group = $employee_type_group_map[$employee_type];
+    }
+
+    // add checkbox option to appropriate field group
+    $element[$group][$setting_name]['#options'][$employee_type] = $employee_type;
+  }
+
+  return $element;
+}
+
+
+/**
+ * Returns an array of employee types from iSearch
+ */
+function _asu_intranet_page_get_employee_types() {
+  $employee_types = &drupal_static(__FUNCTION__);
+
+  if (!isset($employee_types) || $employee_types == "") {
+    // Check for cache
+    if ($cache = cache_get('asu_employee_types')) {
+      $employee_types = $cache->data;
+    }
+    // Create content and cache if no cache available
+    else {
+
+      //set timeout of request to 60 seconds
+      $options = array(
+        'timeout' => 60,
+      );
+
+      $endpoint = ASU_INTRANET_PAGE_EMPLOYEE_TYPES_ENDPOINT;
+      $request = drupal_http_request($endpoint, $options);
+
+      if ($request->code == 200) {
+        $types = $request->data;
+        $employee_types = drupal_json_decode($types);
+      }
+
+      // Cache employee types for number of hours specified
+      if ($employee_types != NULL) {
+
+        $expire_date = time() + 3600 * ASU_INTRANET_PAGE_CACHE_DURATION;
+        cache_set('asu_employee_types', $employee_types, 'cache', $expire_date);
+      }
+    }
+  }
+
+  return $employee_types;
+}
+
+
+/**
+ * Returns an array of employee types from iSearch
+ */
+function _asu_intranet_page_get_isearch_feed($id) {
+  $isearch_feed = &drupal_static(__FUNCTION__ . ':' . $id);
+
+  if (!isset($isearch_feed) || $isearch_feed == "") {
+    // Check for cache
+    if ($cache = cache_get('asu_isearch_feed_' . $id)) {
+      $isearch_feed = $cache->data;
+    }
+    // Create content and cache if no cache available
+    else {
+
+      //set timeout of request to 60 seconds
+      $options = array(
+        'timeout' => 60,
+      );
+
+      $endpoint = ASU_INTRANET_PAGE_ISEARCH_DEPT_ENDPOINT . $id;
+      $request = drupal_http_request($endpoint, $options);
+
+      if ($request->code == 200) {
+        $types = $request->data;
+        $isearch_feed = drupal_json_decode($types);
+      }
+
+      // Cache employee types for number of hours specified
+      if ($isearch_feed != NULL) {
+
+        $expire_date = time() + 3600 * ASU_INTRANET_PAGE_CACHE_DURATION;
+        cache_set('asu_isearch_feed_' . $id, $isearch_feed, 'cache', $expire_date);
+      }
+    }
+  }
+
+  return $isearch_feed;
+}
