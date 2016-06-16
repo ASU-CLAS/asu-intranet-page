@@ -23,7 +23,7 @@ function asu_intranet_page_entity_view($entity, $type, $view_mode, $langcode) {
   if ($_checked_access == FALSE) {
     global $user;
     
-    if ($type == 'node' && $entity->type == 'asu_intranet_page') {
+    if ($type == 'node' && $entity->type == 'asu_intranet_page' && $view_mode != 'search_index') {
       // if the user is not logged in, ask them to
       if (!$user->uid) {
         drupal_goto('cas', array('query'=>drupal_get_destination()));
