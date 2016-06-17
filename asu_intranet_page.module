@@ -18,24 +18,22 @@ define('ASU_INTRANET_PAGE_ROLE_OVERRIDE', 'asu intranet local viewer');
  * Implements hook_entity_view()
  */
 function asu_intranet_page_entity_view($entity, $type, $view_mode, $langcode) {
-  $_checked_access = &drupal_static(__FUNCTION__, FALSE);
+  global $user;
 
-  if ($_checked_access == FALSE) {
-    global $user;
-    
-    if ($type == 'node' && $entity->type == 'asu_intranet_page' && $view_mode != 'search_index') {
-      // if the user is not logged in, ask them to
-      if (!$user->uid) {
+  if ($type == 'node' && $entity->type == 'asu_intranet_page') {
+
+    // if the user is not logged in, ask them to
+    if (!$user->uid) {
+      if (empty($_POST)) {
         drupal_goto('cas', array('query'=>drupal_get_destination()));
       }
-      // check the user's role/access
-      elseif (!in_array(ASU_INTRANET_PAGE_ROLE, $user->roles) && !in_array(ASU_INTRANET_PAGE_ROLE_OVERRIDE, $user->roles)) {
-        drupal_access_denied();
-        drupal_exit();
-      }
+      drupal_exit();
     }
-
-    $_checked_access = TRUE;
+    // check the user's role/access
+    elseif (!in_array(ASU_INTRANET_PAGE_ROLE, $user->roles) && !in_array(ASU_INTRANET_PAGE_ROLE_OVERRIDE, $user->roles)) {
+      drupal_access_denied();
+      drupal_exit();
+    }
   }
 }
 
