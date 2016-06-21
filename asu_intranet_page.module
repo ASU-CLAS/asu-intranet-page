@@ -451,3 +451,10 @@ function _asu_intranet_page_get_isearch_feed($id) {
 
   return $isearch_feed;
 }
+
+function asu_intranet_page_form_user_profile_form_alter(&$form, &$form_state, $form_id) {
+  if ($role = user_role_load_by_name(ASU_INTRANET_PAGE_ROLE)) {
+    unset($form['account']['roles']['#options'][$role->rid]);
+  }
+}
+
