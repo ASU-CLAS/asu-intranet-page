@@ -14,25 +14,19 @@ define('ASU_INTRANET_PAGE_ROLE', 'asu intranet viewer');
 define('ASU_INTRANET_PAGE_ROLE_OVERRIDE', 'asu intranet local viewer');
 
 
-/**
- * Implements hook_entity_view()
- */
-function asu_intranet_page_entity_view($entity, $type, $view_mode, $langcode) {
-  global $user;
-
-  if ($type == 'node' && $entity->type == 'asu_intranet_page') {
-
+function asu_intranet_page_node_access($node, $op, $account) {
+  if ($node->type == 'asu_intranet_page' && $op == 'view') {
     // if the user is not logged in, ask them to
-    if (!$user->uid) {
+    if (!$account->uid) {
       if (empty($_POST)) {
         drupal_goto('cas', array('query'=>drupal_get_destination()));
+        drupal_exit();
       }
-      drupal_exit();
+      return NODE_ACCESS_DENY;
     }
     // check the user's role/access
     elseif (!in_array(ASU_INTRANET_PAGE_ROLE, $user->roles) && !in_array(ASU_INTRANET_PAGE_ROLE_OVERRIDE, $user->roles)) {
-      drupal_access_denied();
-      drupal_exit();
+      return NODE_ACCESS_DENY;
     }
   }
 }
@@ -67,7 +61,6 @@ function asu_intranet_page_permission() {
  * Implements hook_menu()
  */
 function asu_intranet_page_menu() {
-
   $items['admin/config/content/asu_intranet_page'] = array(
     'title' => 'ASU Intranet Page Settings',
     'description' => 'Configure ASU intranet page settings',
