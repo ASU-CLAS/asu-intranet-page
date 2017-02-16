@@ -15,6 +15,7 @@ define('ASU_INTRANET_PAGE_ROLE_OVERRIDE', 'asu intranet local viewer');
 
 
 function asu_intranet_page_node_access($node, $op, $account) {
+  global $user;
   if ($node->type == 'asu_intranet_page' && $op == 'view') {
     // if the user is not logged in, ask them to
     if (!$account->uid) {
@@ -132,7 +133,7 @@ function asu_intranet_page_process_access_map() {
     $dept_people = array();
     foreach ($fetch_depts as $id) {
       $people = _asu_intranet_page_get_isearch_feed($id);
-      
+
       foreach ($people as $person) {
         $asuriteid = $person['asuriteId'];
 
@@ -244,7 +245,7 @@ function asu_intranet_page_settings_form() {
  * Validation for settings form
  */
 function _asu_intranet_page_settings_form_validate($form, &$form_state) {
-  // This is only necessary because we divided employee types 
+  // This is only necessary because we divided employee types
   // into three fieldsets and we are bypassing validation
   $element = 'asu_intranet_page_employee_types';
   $employee_type_groups = _asu_intranet_page_employee_type_groups();
@@ -320,7 +321,7 @@ function _asu_intranet_page_employee_type_fields() {
   // dynamically create our field groups
   foreach ($employee_type_groups as $group_key) {
     $group_name = ucwords($group_key);
-    
+
     $element[$group_key] = array(
       '#title' => $group_name,
       '#type' => 'fieldset',
@@ -450,4 +451,3 @@ function asu_intranet_page_form_user_profile_form_alter(&$form, &$form_state, $f
     unset($form['account']['roles']['#options'][$role->rid]);
   }
 }
-
